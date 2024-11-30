@@ -1,8 +1,3 @@
-/**
- * المترجم الذكي - تطبيق React لترجمة النصوص باستخدام الذكاء الاصطناعي
- * يدعم ترجمة النصوص والفصول مع إدارة المصطلحات والشخصيات
- */
-
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { ArrowRightLeft, Loader2, Settings } from 'lucide-react';
 import LanguageSelector from './components/LanguageSelector';
@@ -13,12 +8,52 @@ import GlossaryManager from './components/GlossaryManager';
 import TextFormatting from './components/TextFormatting';
 import ChapterManager from './components/ChapterManager';
 import { GeminiService } from './lib/gemini-service';
-import type { AITranslator, TranslationHistoryItem } from './lib/types';
+import type { 
+  AITranslator, 
+  TranslationHistoryItem, 
+  AISettings, 
+  Character,
+  Gender
+} from './lib/types';
 
-/**
- * المكون الرئيسي للتطبيق
- * يدير حالة الترجمة والإعدادات والمكونات الفرعية
- */
+// Local storage utilities
+const SETTINGS_KEY = 'ai_translator_settings';
+const CHARACTERS_KEY = 'ai_translator_characters';
+
+const getStoredSettings = (): AISettings | null => {
+  try {
+    const stored = localStorage.getItem(SETTINGS_KEY);
+    return stored ? JSON.parse(stored) : null;
+  } catch {
+    return null;
+  }
+};
+
+const storeSettings = (settings: AISettings): void => {
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+};
+
+const getStoredCharacters = (): Record<string, Gender> => {
+  try {
+    const stored = localStorage.getItem(CHARACTERS_KEY);
+    return stored ? JSON.parse(stored) : {};
+  } catch {
+    return {};
+  }
+};
+
+const storeCharacter = (name: string, gender: Gender): void => {
+  const characters = getStoredCharacters();
+  characters[name] = gender;
+  localStorage.setItem(CHARACTERS_KEY, JSON.stringify(characters));
+};
+
+const removeCharacter = (name: string): void => {
+  const characters = getStoredCharacters();
+  delete characters[name];
+  localStorage.setItem(CHARACTERS_KEY, JSON.stringify(characters));
+};
+
 function App() {
   // حالة النص والترجمة
   const [sourceLang, setSourceLang] = useState('ar');
@@ -33,10 +68,10 @@ function App() {
 
   // إعدادات الذكاء الاصطناعي
   const [isApiKeyModalOpen, setIsApiKeyModalOpen] = useState(false);
-  const [aiSettings, setAISettings] = useState<AISettings>({});
+  const [aiSettings, setAISettings] = useState<AISettings>(() => getStoredSettings() || {});
 
   // إدارة الشخصيات
-  const [characters, setCharacters] = useState<DetectedCharacter[]>([]);
+  const [characters, setCharacters] = useState<Character[]>([]);
 
   // إدارة التبويب النشط
   const [activeTab, setActiveTab] = useState<'translate' | 'chapters'>('translate');
@@ -52,9 +87,24 @@ function App() {
     setCharacters(
       Object.entries(storedCharacters).map(([name, gender]) => ({
         name,
-        gender
+        gender,
+        timestamp: new Date()
       }))
     );
+
+    // محاولة إنشاء المترجم مع المفتاح المخزن
+    if (aiSettings?.apiKey) {
+      try {
+        const service = new GeminiService(aiSettings.apiKey);
+        setTranslator(service);
+      } catch (error) {
+        console.error('فشل في تهيئة خدمة الترجمة:', error);
+        setError('فشل في تهيئة خدمة الترجمة');
+        setIsApiKeyModalOpen(true);
+      }
+    } else {
+      setIsApiKeyModalOpen(true);
+    }
   }, []);
 
   /**
@@ -65,9 +115,11 @@ function App() {
       try {
         const service = new GeminiService(aiSettings.apiKey);
         setTranslator(service);
+        setError(null);
       } catch (error) {
         console.error('فشل في تهيئة خدمة الترجمة:', error);
         setError('فشل في تهيئة خدمة الترجمة');
+        setTranslator(null);
       }
     } else {
       setTranslator(null);
@@ -77,74 +129,82 @@ function App() {
   /**
    * تبديل اللغات المصدر والهدف
    */
-  const handleSwapLanguages = () => {
+  const handleSwapLanguages = useCallback(() => {
     setSourceLang(targetLang);
     setTargetLang(sourceLang);
     setSourceText(targetText);
     setTargetText(sourceText);
-  };
+  }, [sourceLang, targetLang, sourceText, targetText]);
 
   /**
    * معالجة تحديث إعدادات الذكاء الاصطناعي
    */
-  const handleAISettingsSubmit = (settings: AISettings) => {
+  const handleAISettingsSubmit = useCallback((settings: AISettings) => {
     setAISettings(settings);
     storeSettings(settings);
-  };
+    setIsApiKeyModalOpen(false);
+  }, []);
 
   /**
    * إضافة شخصية جديدة
    */
-  const handleAddCharacter = (name: string) => {
+  const handleAddCharacter = useCallback((name: string) => {
     if (!characters.some(char => char.name.toLowerCase() === name.toLowerCase())) {
-      setCharacters(prev => [...prev, { name }]);
+      setCharacters(prev => [...prev, { 
+        name,
+        timestamp: new Date()
+      }]);
     }
-  };
+  }, [characters]);
 
   /**
    * حذف شخصية
    */
-  const handleRemoveCharacter = (name: string) => {
+  const handleRemoveCharacter = useCallback((name: string) => {
     setCharacters(prev => prev.filter(char => char.name !== name));
     removeCharacter(name);
-  };
+  }, []);
 
   /**
    * تحديث معلومات شخصية
    */
-  const handleCharacterUpdate = (name: string, gender: 'male' | 'female') => {
+  const handleCharacterUpdate = useCallback((name: string, gender: Gender) => {
     storeCharacter(name, gender);
     setCharacters(prev =>
       prev.map(char =>
-        char.name === name ? { ...char, gender } : char
+        char.name === name ? { ...char, gender, timestamp: new Date() } : char
       )
     );
-  };
+  }, []);
 
   /**
    * اختيار ترجمة من السجل
    */
-  const handleHistorySelect = (item: TranslationHistoryItem) => {
+  const handleHistorySelect = useCallback((item: TranslationHistoryItem) => {
     setSourceLang(item.fromLang);
     setTargetLang(item.toLang);
     setSourceText(item.sourceText);
     setTargetText(item.targetText);
     
     if (item.characters) {
-      setCharacters(
-        item.characters.map(char => ({
-          name: char.name,
-          gender: char.gender
-        }))
-      );
+      setCharacters(item.characters);
     }
-  };
+  }, []);
 
   /**
    * تنفيذ الترجمة
    */
   const handleTranslate = useCallback(async () => {
-    if (!sourceText.trim() || !translator) return;
+    if (!sourceText.trim()) {
+      setError('الرجاء إدخال نص للترجمة');
+      return;
+    }
+    
+    if (!translator) {
+      setError('الرجاء إدخال مفتاح API صالح');
+      setIsApiKeyModalOpen(true);
+      return;
+    }
     
     setError(null);
     setIsLoading(true);
@@ -165,20 +225,17 @@ function App() {
 
       setTargetText(result);
       
-      setHistory(prev => [{
+      const newHistoryItem: TranslationHistoryItem = {
         id: Date.now(),
         sourceText,
         targetText: result,
         fromLang: sourceLang,
         toLang: targetLang,
         timestamp: new Date(),
-        characters: characters
-          .filter(char => char.gender)
-          .map(char => ({
-            name: char.name,
-            gender: char.gender!
-          }))
-      }, ...prev]);
+        characters: characters.filter(char => char.gender)
+      };
+      
+      setHistory(prev => [newHistoryItem, ...prev]);
 
     } catch (error) {
       console.error('Translation error:', error);
@@ -195,6 +252,7 @@ function App() {
     if (!translator) {
       throw new Error('خدمة الترجمة غير متوفرة');
     }
+    
     return await translator.translate(text, {
       fromLang: sourceLang,
       toLang: targetLang,
@@ -203,166 +261,111 @@ function App() {
   }, [translator, sourceLang, targetLang]);
 
   return (
-    <div className="min-h-screen bg-gradient-dark">
-      <header className="container mx-auto p-4">
-        <h1 className="text-4xl font-bold text-center text-white">المترجم الذكي</h1>
+    <div className="flex flex-col min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 text-white">
+      <header className="p-4 flex justify-between items-center">
+        <h1 className="text-2xl font-bold">المترجم الذكي</h1>
+        <button
+          onClick={() => setIsApiKeyModalOpen(true)}
+          className="btn-icon"
+          aria-label="الإعدادات"
+        >
+          <Settings className="w-6 h-6" />
+        </button>
       </header>
-      <main className="container mx-auto p-4" role="main">
+
+      <main className="flex-1 container mx-auto p-4 space-y-6">
+        <div className="flex flex-col gap-4">
+          <div className="flex justify-center">
+            <LanguageSelector
+              value={sourceLang}
+              onChange={setSourceLang}
+              label="من"
+            />
+            <button
+              onClick={handleSwapLanguages}
+              className="p-2 rounded hover:bg-gray-100"
+              title="تبديل اللغات"
+            >
+              <ArrowRightLeft className="w-5 h-5" />
+            </button>
+            <LanguageSelector
+              value={targetLang}
+              onChange={setTargetLang}
+              label="إلى"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <textarea
+                value={sourceText}
+                onChange={(e) => setSourceText(e.target.value)}
+                placeholder="أدخل النص للترجمة..."
+                className="textarea-translation"
+                dir={sourceLang === 'ar' ? 'rtl' : 'ltr'}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <textarea
+                value={targetText}
+                readOnly
+                placeholder="الترجمة ستظهر هنا..."
+                className="textarea-translation"
+                dir={targetLang === 'ar' ? 'rtl' : 'ltr'}
+              />
+            </div>
+          </div>
+
+          <div className="flex justify-between items-center">
+            <CharacterPronouns
+              characters={characters}
+              onAdd={handleAddCharacter}
+              onRemove={handleRemoveCharacter}
+              onUpdate={handleCharacterUpdate}
+            />
+            <button
+              onClick={handleTranslate}
+              disabled={isLoading || !sourceText.trim()}
+              className="btn-primary"
+            >
+              {isLoading ? (
+                <div className="flex items-center gap-2">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  جاري الترجمة...
+                </div>
+              ) : (
+                'ترجمة'
+              )}
+            </button>
+          </div>
+        </div>
+
         {error && (
-          <div className="mb-4 p-4 bg-red-500/10 border border-red-500/20 rounded-lg text-red-500">
-            <p className="text-sm">{error}</p>
+          <div className="p-4 rounded-lg bg-red-500/10 text-red-500 text-center">
+            {error}
           </div>
         )}
-        <div className="text-center mb-12 relative floating">
-          <button
-            onClick={() => setIsApiKeyModalOpen(true)}
-            className="absolute left-4 top-4 p-4 glass-morphism rounded-2xl hover:scale-105 
-              transition-all duration-300 ease-out shadow-lg hover:shadow-xl 
-              backdrop-blur-lg bg-white/5 hover:bg-white/10 group"
-            title="إعدادات API"
-          >
-            <Settings className="w-6 h-6 text-white group-hover:rotate-90 transition-transform duration-300" />
-          </button>
-          <h1 className="text-5xl font-bold text-white mb-4 drop-shadow-lg text-stroke">المترجم الذكي</h1>
-          <p className="text-xl text-white/90 text-stroke-sm">ترجمة احترافية باستخدام الذكاء الاصطناعي</p>
+
+        <div className="mt-8">
+          <h2 className="text-xl font-semibold mb-4">سجل الترجمات</h2>
+          {history.length === 0 ? (
+            <p className="text-center text-gray-400">لا يوجد سجل ترجمة حتى الآن</p>
+          ) : (
+            <TranslationHistory
+              history={history}
+              onSelect={handleHistorySelect}
+            />
+          )}
         </div>
-
-        <div className="flex justify-center gap-4 mb-8">
-          <button
-            onClick={() => setActiveTab('translate')}
-            className={`btn-secondary ${activeTab === 'translate' ? 'bg-white/20' : ''}`}
-          >
-            ترجمة نص
-          </button>
-          <button
-            onClick={() => setActiveTab('chapters')}
-            className={`btn-secondary ${activeTab === 'chapters' ? 'bg-white/20' : ''}`}
-          >
-            إدارة الفصول
-          </button>
-        </div>
-
-        {activeTab === 'translate' ? (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            <div className="lg:col-span-2 space-y-6">
-              <div className="glass-morphism rounded-2xl p-6 shadow-lg">
-                <CharacterPronouns
-                  characters={characters}
-                  onAdd={handleAddCharacter}
-                  onRemove={handleRemoveCharacter}
-                  onUpdate={handleCharacterUpdate}
-                />
-                <div className="flex items-center gap-4 mb-6">
-                  <LanguageSelector
-                    fromLang={sourceLang}
-                    toLang={targetLang}
-                    onFromLangChange={setSourceLang}
-                    onToLangChange={setTargetLang}
-                    onSwapLanguages={handleSwapLanguages}
-                  />
-                </div>
-
-                <div className="space-y-4">
-                  <TextFormatting
-                    text={sourceText}
-                    onTextChange={setSourceText}
-                  />
-
-                  <textarea
-                    value={sourceText}
-                    onChange={(e) => setSourceText(e.target.value)}
-                    placeholder="أدخل النص للترجمة..."
-                    className="w-full h-32 p-4 rounded-xl glass-morphism text-white placeholder-white/50
-                      focus:outline-none focus:ring-2 focus:ring-white/20 transition-all duration-300"
-                    dir="auto"
-                  />
-
-                  <div className="flex justify-end">
-                    <button
-                      onClick={handleTranslate}
-                      disabled={isLoading || !sourceText.trim()}
-                      className={`px-6 py-2 rounded-lg ${
-                        isLoading
-                          ? 'bg-gray-500 cursor-not-allowed'
-                          : error
-                          ? 'bg-red-500 hover:bg-red-600'
-                          : 'bg-primary hover:bg-primary-dark'
-                      } text-white transition-all duration-300`}
-                    >
-                      {isLoading ? (
-                        <span className="flex items-center gap-2">
-                          <Loader2 className="animate-spin" size={16} />
-                          جاري الترجمة...
-                        </span>
-                      ) : error ? (
-                        'حاول مرة أخرى'
-                      ) : (
-                        'ترجم'
-                      )}
-                    </button>
-                  </div>
-
-                  {targetText && (
-                    <div className="glass-morphism rounded-xl p-4 text-white/90">
-                      <p dir="auto">{targetText}</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <div className="lg:col-span-1 space-y-6">
-              <GlossaryManager
-                onTermSelect={(term) => {
-                  setSourceText((prev) => prev + ' ' + term.original);
-                }}
-              />
-              <TranslationHistory
-                history={history}
-                onSelect={handleHistorySelect}
-              />
-            </div>
-          </div>
-        ) : (
-          <ChapterManager
-            onTranslate={handleChapterTranslate}
-          />
-        )}
       </main>
 
       <ApiKeyModal
         isOpen={isApiKeyModalOpen}
         onClose={() => setIsApiKeyModalOpen(false)}
-        onSubmit={handleAISettingsSubmit}
-        initialSettings={aiSettings}
-      >
-        <select
-          value={aiSettings.provider}
-          onChange={(e) => setAISettings({
-            ...aiSettings,
-            provider: e.target.value as 'openai' | 'anthropic'
-          })}
-          className="w-full p-3 rounded-xl glass-morphism text-white
-            focus:outline-none focus:ring-2 focus:ring-white/20 transition-all duration-300"
-          aria-label="اختر مزود خدمة الذكاء الاصطناعي"
-        >
-          <option value="openai">OpenAI</option>
-          <option value="anthropic">Anthropic</option>
-        </select>
-        <select
-          value={aiSettings.model}
-          onChange={(e) => setAISettings({
-            ...aiSettings,
-            model: e.target.value
-          })}
-          className="w-full p-3 rounded-xl glass-morphism text-white
-            focus:outline-none focus:ring-2 focus:ring-white/20 transition-all duration-300"
-          aria-label="اختر نموذج الذكاء الاصطناعي"
-        >
-          <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
-          <option value="gpt-4">GPT-4</option>
-        </select>
-      </ApiKeyModal>
+        settings={aiSettings}
+        onSave={handleAISettingsSubmit}
+      />
     </div>
   );
 }
