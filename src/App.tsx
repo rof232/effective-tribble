@@ -3,7 +3,7 @@
  * يدعم ترجمة النصوص والفصول مع إدارة المصطلحات والشخصيات
  */
 
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { ArrowRightLeft, Loader2, Settings } from 'lucide-react';
 import LanguageSelector from './components/LanguageSelector';
 import TranslationHistory from './components/TranslationHistory';
@@ -133,8 +133,12 @@ function App() {
   /**
    * تنفيذ الترجمة
    */
+  const translationService = useMemo(() => {
+    return new AIService(aiSettings);
+  }, [aiSettings]);
+
   const handleTranslate = useCallback(async () => {
-    if (!inputText.trim() || !aiService) return;
+    if (!inputText.trim() || !translationService) return;
 
     setIsLoading(true);
     try {
@@ -144,7 +148,7 @@ function App() {
           .map(char => [char.name, char.gender])
       );
 
-      const translatedResult = await aiService.translate(inputText, fromLang, toLang, characterGenders);
+      const translatedResult = await translationService.translate(inputText, fromLang, toLang, characterGenders);
       setTranslatedText(translatedResult);
 
       setHistory((prev) => [{
@@ -171,7 +175,7 @@ function App() {
     } finally {
       setIsLoading(false);
     }
-  }, [inputText, fromLang, toLang, aiService, characters, aiSettings]);
+  }, [inputText, fromLang, toLang, translationService, characters, aiSettings]);
 
   return (
     <div className="min-h-screen bg-gradient-dark">
@@ -247,7 +251,9 @@ function App() {
                     <button
                       onClick={handleTranslate}
                       disabled={isLoading || !inputText.trim()}
-                      className="btn-primary flex items-center gap-2"
+                      className={`px-6 py-2 rounded-lg bg-primary ${
+                        isLoading ? 'opacity-50 cursor-not-allowed' : 'hover:bg-primary-dark'
+                      }`}
                     >
                       {isLoading ? (
                         <>
