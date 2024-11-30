@@ -1,7 +1,8 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { TranslationCache } from './cache';
+import { AITranslator, TranslationOptions } from './types';
 
-export class GeminiService {
+export class GeminiService implements AITranslator {
   private model: any;
   private cache: TranslationCache;
   private readonly MAX_CHUNK_LENGTH = 2500; // الحد الأقصى لطول النص في كل طلب
@@ -20,26 +21,32 @@ export class GeminiService {
     }
   }
 
+  isConfigured(): boolean {
+    return !!this.model;
+  }
+
   /**
    * ترجمة النص الكامل مع التعامل مع الأجزاء الطويلة
    */
-  async translate(text: string, fromLang: string, toLang: string): Promise<string> {
+  async translate(text: string, options: TranslationOptions): Promise<string> {
+    if (!this.isConfigured()) {
+      throw new Error('خدمة الترجمة غير مهيأة');
+    }
+
     if (!text?.trim()) {
       throw new Error('النص المدخل فارغ');
     }
 
-    if (!fromLang || !toLang) {
-      throw new Error('يجب تحديد لغتي المصدر والهدف');
-    }
+    const { fromLang, toLang, characters } = options;
 
     try {
       // تقسيم النص إلى أجزاء إذا كان طويلاً
       const chunks = this.splitTextIntoChunks(text);
       const translations = await Promise.all(
-        chunks.map(chunk => this.translateChunk(chunk, fromLang, toLang))
+        chunks.map(chunk => this.translateChunk(chunk, fromLang, toLang, characters))
       );
 
-      return translations.join('\n');
+      return translations.join('\\n');
     } catch (error) {
       console.error('خطأ في الترجمة:', {
         error,
@@ -67,7 +74,13 @@ export class GeminiService {
   /**
    * ترجمة جزء واحد من النص
    */
-  private async translateChunk(chunk: string, fromLang: string, toLang: string): Promise<string> {
+  private async translateChunk(
+    chunk: string,
+    fromLang: string,
+    toLang: string,
+    characters?: Record<string, 'male' | 'female'>
+  ): Promise<string> {
+    const cacheKey = `${chunk}_${fromLang}_${toLang}`;
     const cached = this.cache.get(chunk, fromLang, toLang);
     if (cached) {
       console.log('استخدام ترجمة مخزنة مؤقتاً');
@@ -75,13 +88,20 @@ export class GeminiService {
     }
 
     try {
-      const prompt = `
+      let prompt = `
         أنت مترجم محترف. قم بترجمة النص التالي من ${fromLang} إلى ${toLang}.
         حافظ على التنسيق والمعنى الأصلي. لا تضف أي نص إضافي أو تعليقات.
         
         النص:
         ${chunk}
       `;
+
+      if (characters && Object.keys(characters).length > 0) {
+        prompt += '\n\nUse these character genders for proper translation:\n';
+        Object.entries(characters).forEach(([name, gender]) => {
+          prompt += `- "${name}" is ${gender}\n`;
+        });
+      }
 
       const result = await this.model.generateContent(prompt);
       if (!result?.response) {
