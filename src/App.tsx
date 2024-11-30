@@ -12,9 +12,8 @@ import CharacterPronouns from './components/CharacterPronouns';
 import GlossaryManager from './components/GlossaryManager';
 import TextFormatting from './components/TextFormatting';
 import ChapterManager from './components/ChapterManager';
-import { AIService, getStoredSettings, storeSettings } from './lib/ai-service';
-import { getStoredCharacters, storeCharacter, removeCharacter } from './lib/characters';
-import type { TranslationHistoryItem, DetectedCharacter, AISettings } from './lib/types';
+import { GeminiService } from './lib/gemini-service';
+import type { AITranslator, TranslationHistoryItem } from './lib/types';
 
 /**
  * المكون الرئيسي للتطبيق
@@ -34,8 +33,7 @@ function App() {
 
   // إعدادات الذكاء الاصطناعي
   const [isApiKeyModalOpen, setIsApiKeyModalOpen] = useState(false);
-  const [aiService, setAIService] = useState<AIService | null>(null);
-  const [aiSettings, setAISettings] = useState<AISettings>(getStoredSettings());
+  const [aiSettings, setAISettings] = useState<AISettings>({});
 
   // إدارة الشخصيات
   const [characters, setCharacters] = useState<DetectedCharacter[]>([]);
@@ -43,18 +41,13 @@ function App() {
   // إدارة التبويب النشط
   const [activeTab, setActiveTab] = useState<'translate' | 'chapters'>('translate');
 
+  // مرجع للخدمة الحالية
+  const [translator, setTranslator] = useState<AITranslator | null>(null);
+
   /**
    * تحميل الإعدادات والشخصيات عند بدء التطبيق
    */
   useEffect(() => {
-    const settings = getStoredSettings();
-    if (settings.apiKey) {
-      setAIService(new AIService(settings));
-    } else {
-      setIsApiKeyModalOpen(true);
-    }
-
-    // Load stored characters
     const storedCharacters = getStoredCharacters();
     setCharacters(
       Object.entries(storedCharacters).map(([name, gender]) => ({
@@ -63,6 +56,23 @@ function App() {
       }))
     );
   }, []);
+
+  /**
+   * تحديث الخدمة عند تغيير الإعدادات
+   */
+  useEffect(() => {
+    if (aiSettings?.apiKey) {
+      try {
+        const service = new GeminiService(aiSettings.apiKey);
+        setTranslator(service);
+      } catch (error) {
+        console.error('فشل في تهيئة خدمة الترجمة:', error);
+        setError('فشل في تهيئة خدمة الترجمة');
+      }
+    } else {
+      setTranslator(null);
+    }
+  }, [aiSettings]);
 
   /**
    * تبديل اللغات المصدر والهدف
@@ -79,7 +89,6 @@ function App() {
    */
   const handleAISettingsSubmit = (settings: AISettings) => {
     setAISettings(settings);
-    setAIService(new AIService(settings));
     storeSettings(settings);
   };
 
@@ -135,48 +144,40 @@ function App() {
    * تنفيذ الترجمة
    */
   const handleTranslate = useCallback(async () => {
-    if (!sourceText.trim()) return;
+    if (!sourceText.trim() || !translator) return;
     
     setError(null);
     setIsLoading(true);
     
     try {
-      if (!aiSettings?.apiKey) {
-        throw new Error('الرجاء إدخال مفتاح API في الإعدادات');
-      }
-
-      const service = new GeminiService(aiSettings.apiKey);
-      if (!service.isConfigured()) {
-        throw new Error('فشل في تهيئة خدمة الترجمة');
-      }
-
       const characterGenders = Object.fromEntries(
         characters
           .filter(char => char.gender)
           .map(char => [char.name, char.gender])
       );
 
-      const result = await service.translate(sourceText, {
+      const result = await translator.translate(sourceText, {
         fromLang: sourceLang,
         toLang: targetLang,
         characters: characterGenders,
         preserveFormatting: true
       });
 
-      if (!result) {
-        throw new Error('لم يتم استلام أي ترجمة');
-      }
-
       setTargetText(result);
       
-      // حفظ في السجل
       setHistory(prev => [{
         id: Date.now(),
         sourceText,
         targetText: result,
         fromLang: sourceLang,
         toLang: targetLang,
-        timestamp: new Date()
+        timestamp: new Date(),
+        characters: characters
+          .filter(char => char.gender)
+          .map(char => ({
+            name: char.name,
+            gender: char.gender!
+          }))
       }, ...prev]);
 
     } catch (error) {
@@ -185,7 +186,21 @@ function App() {
     } finally {
       setIsLoading(false);
     }
-  }, [sourceText, sourceLang, targetLang, aiSettings, characters]);
+  }, [sourceText, sourceLang, targetLang, translator, characters]);
+
+  /**
+   * معالج ترجمة الفصول
+   */
+  const handleChapterTranslate = useCallback(async (text: string) => {
+    if (!translator) {
+      throw new Error('خدمة الترجمة غير متوفرة');
+    }
+    return await translator.translate(text, {
+      fromLang: sourceLang,
+      toLang: targetLang,
+      preserveFormatting: true
+    });
+  }, [translator, sourceLang, targetLang]);
 
   return (
     <div className="min-h-screen bg-gradient-dark">
@@ -310,10 +325,7 @@ function App() {
           </div>
         ) : (
           <ChapterManager
-            onTranslate={async (text) => {
-              if (!aiService) throw new Error('لم يتم تكوين خدمة الترجمة');
-              return await aiService.translate(text, sourceLang, targetLang);
-            }}
+            onTranslate={handleChapterTranslate}
           />
         )}
       </main>
