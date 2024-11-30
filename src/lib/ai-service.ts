@@ -1,15 +1,58 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
-import type { AISettings } from './types';
+import type { AISettings, TranslationResult, AIServiceError } from './types';
 
-export class AIService {
+export interface AITranslator {
+  translate(text: string, sourceLang: string, targetLang: string): Promise<TranslationResult>;
+}
+
+export abstract class BaseAIService implements AITranslator {
+  protected apiKey: string;
+  protected logger: Logger;
+
+  constructor(apiKey: string) {
+    if (!apiKey) {
+      throw new AIServiceError('API key is required');
+    }
+    this.apiKey = apiKey;
+    this.logger = new Logger();
+  }
+
+  abstract translate(text: string, sourceLang: string, targetLang: string): Promise<TranslationResult>;
+
+  protected handleError(error: any): never {
+    this.logger.error('Translation error:', error);
+    throw new AIServiceError(
+      error.message || 'An error occurred during translation',
+      error.code || 'TRANSLATION_ERROR'
+    );
+  }
+}
+
+class Logger {
+  error(...args: any[]) {
+    console.error('[AI Service Error]', ...args);
+    // TODO: Implement proper error logging service
+  }
+
+  info(...args: any[]) {
+    console.info('[AI Service Info]', ...args);
+  }
+
+  warn(...args: any[]) {
+    console.warn('[AI Service Warning]', ...args);
+  }
+}
+
+export class AIService extends BaseAIService {
   private settings: AISettings;
   private geminiClient?: GoogleGenerativeAI;
   private openaiClient?: OpenAI;
   private anthropicClient?: Anthropic;
 
   constructor(settings: AISettings) {
+    super(settings.apiKey);
     this.settings = settings;
     this.initializeClient();
   }
@@ -28,8 +71,8 @@ export class AIService {
           break;
       }
     } catch (error) {
-      console.error('Error initializing AI client:', error);
-      throw new Error('Failed to initialize AI service');
+      this.logger.error('Error initializing AI client:', error);
+      throw new AIServiceError('Failed to initialize AI service');
     }
   }
 
@@ -38,9 +81,9 @@ export class AIService {
     fromLang: string,
     toLang: string,
     characters?: Record<string, 'male' | 'female'>
-  ): Promise<string> {
+  ): Promise<TranslationResult> {
     if (!text.trim()) {
-      throw new Error('No text provided for translation');
+      throw new AIServiceError('No text provided for translation');
     }
 
     let prompt = `Translate the following text from ${fromLang} to ${toLang}.`;
@@ -57,34 +100,33 @@ export class AIService {
     try {
       switch (this.settings.provider) {
         case 'gemini':
-          if (!this.geminiClient) throw new Error('Gemini client not initialized');
+          if (!this.geminiClient) throw new AIServiceError('Gemini client not initialized');
           const model = this.geminiClient.getGenerativeModel({ model: this.settings.model });
           const result = await model.generateContent(prompt);
-          return result.response.text();
+          return { translatedText: result.response.text() };
 
         case 'openai':
-          if (!this.openaiClient) throw new Error('OpenAI client not initialized');
+          if (!this.openaiClient) throw new AIServiceError('OpenAI client not initialized');
           const completion = await this.openaiClient.chat.completions.create({
             model: this.settings.model,
             messages: [{ role: 'user', content: prompt }]
           });
-          return completion.choices[0]?.message.content || '';
+          return { translatedText: completion.choices[0]?.message.content || '' };
 
         case 'anthropic':
-          if (!this.anthropicClient) throw new Error('Anthropic client not initialized');
+          if (!this.anthropicClient) throw new AIServiceError('Anthropic client not initialized');
           const message = await this.anthropicClient.messages.create({
             model: this.settings.model,
             max_tokens: 4096,
             messages: [{ role: 'user', content: prompt }]
           });
-          return message.content[0].text;
+          return { translatedText: message.content[0].text };
 
         default:
-          throw new Error('Unsupported AI provider');
+          throw new AIServiceError('Unsupported AI provider');
       }
     } catch (error) {
-      console.error('Translation error:', error);
-      throw new Error('Failed to translate text');
+      this.handleError(error);
     }
   }
 }
@@ -96,7 +138,7 @@ export const getStoredSettings = (): AISettings => {
       return JSON.parse(stored);
     }
   } catch (error) {
-    console.error('Error reading stored settings:', error);
+    this.logger.error('Error reading stored settings:', error);
   }
   
   return {
@@ -110,6 +152,6 @@ export const storeSettings = (settings: AISettings) => {
   try {
     localStorage.setItem('ai_settings', JSON.stringify(settings));
   } catch (error) {
-    console.error('Error storing settings:', error);
+    this.logger.error('Error storing settings:', error);
   }
 };
