@@ -1,65 +1,76 @@
-interface CacheItem {
+interface CacheEntry {
   translation: string;
   timestamp: number;
 }
 
-interface TranslationCache {
-  [key: string]: CacheItem;
-}
-
-const CACHE_EXPIRY = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
-
-export class TranslationCacheManager {
-  private cache: TranslationCache = {};
+export class TranslationCache {
+  private cache: Map<string, CacheEntry>;
+  private readonly CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 ساعة
 
   constructor() {
+    this.cache = new Map();
     this.loadFromLocalStorage();
   }
 
+  private getCacheKey(text: string, fromLang: string, toLang: string): string {
+    return `${fromLang}:${toLang}:${text}`;
+  }
+
   private loadFromLocalStorage() {
-    const savedCache = localStorage.getItem('translationCache');
-    if (savedCache) {
-      this.cache = JSON.parse(savedCache);
-      this.cleanExpiredEntries();
+    try {
+      const saved = localStorage.getItem('translation-cache');
+      if (saved) {
+        const entries = JSON.parse(saved);
+        this.cache = new Map(entries);
+        // تنظيف الذاكرة المؤقتة القديمة
+        this.cleanup();
+      }
+    } catch (error) {
+      console.warn('فشل تحميل الذاكرة المؤقتة:', error);
     }
   }
 
   private saveToLocalStorage() {
-    localStorage.setItem('translationCache', JSON.stringify(this.cache));
+    try {
+      const entries = Array.from(this.cache.entries());
+      localStorage.setItem('translation-cache', JSON.stringify(entries));
+    } catch (error) {
+      console.warn('فشل حفظ الذاكرة المؤقتة:', error);
+    }
   }
 
-  private cleanExpiredEntries() {
+  private cleanup() {
     const now = Date.now();
-    Object.keys(this.cache).forEach(key => {
-      if (now - this.cache[key].timestamp > CACHE_EXPIRY) {
-        delete this.cache[key];
+    for (const [key, entry] of this.cache.entries()) {
+      if (now - entry.timestamp > this.CACHE_DURATION) {
+        this.cache.delete(key);
       }
-    });
+    }
     this.saveToLocalStorage();
   }
 
-  public getCachedTranslation(text: string, fromLang: string, toLang: string): string | null {
-    const key = `${text}_${fromLang}_${toLang}`;
-    const cached = this.cache[key];
+  get(text: string, fromLang: string, toLang: string): string | null {
+    const key = this.getCacheKey(text, fromLang, toLang);
+    const entry = this.cache.get(key);
     
-    if (cached && Date.now() - cached.timestamp <= CACHE_EXPIRY) {
-      return cached.translation;
+    if (!entry) return null;
+    
+    // التحقق من صلاحية الذاكرة المؤقتة
+    if (Date.now() - entry.timestamp > this.CACHE_DURATION) {
+      this.cache.delete(key);
+      this.saveToLocalStorage();
+      return null;
     }
     
-    return null;
+    return entry.translation;
   }
 
-  public cacheTranslation(text: string, fromLang: string, toLang: string, translation: string) {
-    const key = `${text}_${fromLang}_${toLang}`;
-    this.cache[key] = {
+  set(text: string, fromLang: string, toLang: string, translation: string) {
+    const key = this.getCacheKey(text, fromLang, toLang);
+    this.cache.set(key, {
       translation,
       timestamp: Date.now()
-    };
+    });
     this.saveToLocalStorage();
-  }
-
-  public clearCache() {
-    this.cache = {};
-    localStorage.removeItem('translationCache');
   }
 }
