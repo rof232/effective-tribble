@@ -21,7 +21,7 @@ export interface DetectedCharacter {
   gender?: 'male' | 'female';
 }
 
-export type AIProvider = 'gemini' | 'openai' | 'anthropic' | 'custom';
+export type AIProvider = 'gemini' | 'openai' | 'anthropic';
 
 export interface AIModel {
   id: string;
@@ -37,6 +37,25 @@ export interface AIProviderConfig {
 
 export interface AISettings {
   provider: AIProvider;
-  model: string;
   apiKey: string;
+  model?: string;
+}
+
+export interface TranslationResult {
+  text: string;
+  from: string;
+  to: string;
+  timestamp: number;
+}
+
+export interface TranslationOptions {
+  fromLang: string;
+  toLang: string;
+  characters?: Record<string, 'male' | 'female'>;
+  preserveFormatting?: boolean;
+}
+
+export interface AITranslator {
+  translate(text: string, options: TranslationOptions): Promise<string>;
+  isConfigured(): boolean;
 }
