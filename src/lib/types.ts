@@ -1,15 +1,32 @@
+export type AIProvider = 'gemini' | 'openai' | 'anthropic';
 export type Gender = 'male' | 'female';
 
 export interface Character {
   name: string;
-  gender?: Gender;
-  timestamp?: Date;
+  gender: Gender;
+  timestamp: Date;
 }
 
-export interface AIProvider {
-  id: 'gemini' | 'openai' | 'anthropic';
-  name: string;
-  models: AIModel[];
+export interface AISettings {
+  provider: AIProvider;
+  apiKey: string;
+  model: string;
+  maxTokens?: number;
+  temperature?: number;
+}
+
+export interface TranslationResult {
+  translatedText: string;
+  confidence?: number;
+  provider?: AIProvider;
+  timeTaken?: number;
+}
+
+export interface TranslationHistoryItem extends TranslationResult {
+  sourceText: string;
+  sourceLang: string;
+  targetLang: string;
+  timestamp: Date;
 }
 
 export interface AIModel {
@@ -19,18 +36,9 @@ export interface AIModel {
   supportedLanguages: string[];
 }
 
-export interface AISettings {
-  provider: AIProvider['id'];
-  apiKey: string;
-  model?: string;
-}
-
-export interface TranslationResult {
-  text: string;
-  from: string;
-  to: string;
-  timestamp: number;
-  characters?: Character[];
+export interface AITranslator {
+  translate(text: string, options: TranslationOptions): Promise<string>;
+  isConfigured(): boolean;
 }
 
 export interface TranslationOptions {
@@ -40,22 +48,23 @@ export interface TranslationOptions {
   preserveFormatting?: boolean;
 }
 
-export interface TranslationHistoryItem {
-  id: number;
-  sourceText: string;
-  targetText: string;
-  fromLang: string;
-  toLang: string;
-  timestamp: Date;
-  characters?: Character[];
-}
-
-export interface AITranslator {
-  translate(text: string, options: TranslationOptions): Promise<string>;
-  isConfigured(): boolean;
-}
-
 export interface TranslationError extends Error {
   code?: string;
   details?: unknown;
+}
+
+export class AIServiceError extends Error {
+  code: string;
+  
+  constructor(message: string, code: string = 'UNKNOWN_ERROR') {
+    super(message);
+    this.name = 'AIServiceError';
+    this.code = code;
+  }
+}
+
+export interface CacheEntry<T> {
+  data: T;
+  timestamp: number;
+  expiresAt: number;
 }
