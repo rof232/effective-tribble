@@ -1,42 +1,26 @@
+export type Gender = 'male' | 'female';
+
 export interface Character {
   name: string;
-  gender: 'male' | 'female';
-  timestamp: Date;
+  gender?: Gender;
+  timestamp?: Date;
 }
 
-export interface TranslationHistoryItem {
-  id: number;
-  from: string;
-  to: string;
-  originalText: string;
-  translatedText: string;
-  timestamp: Date;
-  characters?: Character[];
-  provider: AIProvider;
-  model: string;
-}
-
-export interface DetectedCharacter {
+export interface AIProvider {
+  id: 'gemini' | 'openai' | 'anthropic';
   name: string;
-  gender?: 'male' | 'female';
+  models: AIModel[];
 }
-
-export type AIProvider = 'gemini' | 'openai' | 'anthropic';
 
 export interface AIModel {
   id: string;
   name: string;
-  provider: AIProvider;
-}
-
-export interface AIProviderConfig {
-  name: string;
-  models: AIModel[];
-  customModelSupport?: boolean;
+  maxTokens: number;
+  supportedLanguages: string[];
 }
 
 export interface AISettings {
-  provider: AIProvider;
+  provider: AIProvider['id'];
   apiKey: string;
   model?: string;
 }
@@ -46,16 +30,32 @@ export interface TranslationResult {
   from: string;
   to: string;
   timestamp: number;
+  characters?: Character[];
 }
 
 export interface TranslationOptions {
   fromLang: string;
   toLang: string;
-  characters?: Record<string, 'male' | 'female'>;
+  characters?: Record<string, Gender>;
   preserveFormatting?: boolean;
+}
+
+export interface TranslationHistoryItem {
+  id: number;
+  sourceText: string;
+  targetText: string;
+  fromLang: string;
+  toLang: string;
+  timestamp: Date;
+  characters?: Character[];
 }
 
 export interface AITranslator {
   translate(text: string, options: TranslationOptions): Promise<string>;
   isConfigured(): boolean;
+}
+
+export interface TranslationError extends Error {
+  code?: string;
+  details?: unknown;
 }
