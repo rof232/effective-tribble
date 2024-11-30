@@ -1,0 +1,107 @@
+import { GoogleGenerativeAI } from '@google/generative-ai';
+
+export class GeminiService {
+  private model: any;
+  private readonly MAX_CHUNK_LENGTH = 2500; // الحد الأقصى لطول النص في كل طلب
+
+  constructor(apiKey: string) {
+    const genAI = new GoogleGenerativeAI(apiKey);
+    this.model = genAI.getGenerativeModel({ model: 'gemini-pro' });
+  }
+
+  /**
+   * تقسيم النص إلى أجزاء مع الحفاظ على سلامة الجمل والفقرات
+   */
+  private splitTextIntoChunks(text: string): string[] {
+    const paragraphs = text.split('\n\n');
+    const chunks: string[] = [];
+    let currentChunk = '';
+
+    for (const paragraph of paragraphs) {
+      // إذا كان الجزء الحالي + الفقرة الجديدة أقل من الحد الأقصى
+      if ((currentChunk + paragraph).length < this.MAX_CHUNK_LENGTH) {
+        currentChunk += (currentChunk ? '\n\n' : '') + paragraph;
+      } else {
+        // إذا كانت الفقرة نفسها أكبر من الحد الأقصى
+        if (paragraph.length > this.MAX_CHUNK_LENGTH) {
+          // تقسيم الفقرة إلى جمل
+          const sentences = paragraph.match(/[^.!?]+[.!?]+/g) || [paragraph];
+          let sentenceChunk = '';
+
+          for (const sentence of sentences) {
+            if ((sentenceChunk + sentence).length < this.MAX_CHUNK_LENGTH) {
+              sentenceChunk += sentence;
+            } else {
+              if (sentenceChunk) chunks.push(sentenceChunk.trim());
+              sentenceChunk = sentence;
+            }
+          }
+          if (sentenceChunk) chunks.push(sentenceChunk.trim());
+        } else {
+          // إضافة الجزء الحالي وبدء جزء جديد
+          if (currentChunk) chunks.push(currentChunk.trim());
+          currentChunk = paragraph;
+        }
+      }
+    }
+
+    // إضافة الجزء الأخير
+    if (currentChunk) chunks.push(currentChunk.trim());
+
+    return chunks;
+  }
+
+  /**
+   * ترجمة جزء واحد من النص
+   */
+  private async translateChunk(chunk: string, fromLang: string, toLang: string): Promise<string> {
+    try {
+      const prompt = `
+        أنت مترجم محترف. قم بترجمة النص التالي من ${fromLang} إلى ${toLang}.
+        حافظ على التنسيق والمعنى الأصلي. لا تضف أي نص إضافي أو تعليقات.
+        
+        النص:
+        ${chunk}
+      `;
+
+      const result = await this.model.generateContent(prompt);
+      const response = await result.response;
+      return response.text().trim();
+    } catch (error) {
+      console.error('Chunk translation error:', error);
+      throw new Error(`فشل في ترجمة جزء من النص: ${error.message}`);
+    }
+  }
+
+  /**
+   * ترجمة النص الكامل مع التعامل مع الأجزاء الطويلة
+   */
+  async translate(text: string, fromLang: string, toLang: string): Promise<string> {
+    try {
+      // إذا كان النص قصيراً، ترجمه مباشرة
+      if (text.length <= this.MAX_CHUNK_LENGTH) {
+        return this.translateChunk(text, fromLang, toLang);
+      }
+
+      // تقسيم النص إلى أجزاء
+      const chunks = this.splitTextIntoChunks(text);
+      console.log(`تم تقسيم النص إلى ${chunks.length} أجزاء`);
+
+      // ترجمة كل جزء على حدة
+      const translatedChunks = await Promise.all(
+        chunks.map(async (chunk, index) => {
+          console.log(`جاري ترجمة الجزء ${index + 1} من ${chunks.length}`);
+          const translated = await this.translateChunk(chunk, fromLang, toLang);
+          // إضافة مسافة بين الفقرات
+          return translated + (index < chunks.length - 1 ? '\n\n' : '');
+        })
+      );
+
+      // دمج الأجزاء المترجمة
+      return translatedChunks.join('');
+    } catch (error) {
+      console.error('Translation error:', error);
+      throw new Error('فشلت عملية الترجمة: ' + error.message);
+    }
+  }
+}
