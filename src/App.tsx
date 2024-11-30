@@ -27,6 +27,7 @@ function App() {
   const [inputText, setInputText] = useState('');
   const [translatedText, setTranslatedText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // سجل الترجمات
   const [history, setHistory] = useState<TranslationHistoryItem[]>([]);
@@ -139,9 +140,16 @@ function App() {
 
   const handleTranslate = useCallback(async () => {
     if (!inputText.trim() || !translationService) return;
-
+    
+    setError(null);
     setIsLoading(true);
+    
     try {
+      // التحقق من مفتاح API
+      if (!aiSettings?.apiKey) {
+        throw new Error('الرجاء إدخال مفتاح API في الإعدادات');
+      }
+
       const characterGenders = Object.fromEntries(
         characters
           .filter(char => char.gender)
@@ -171,7 +179,7 @@ function App() {
 
     } catch (error) {
       console.error('Translation error:', error);
-      alert('حدث خطأ أثناء الترجمة. يرجى المحاولة مرة أخرى.');
+      setError(error.message || 'حدث خطأ أثناء الترجمة');
     } finally {
       setIsLoading(false);
     }
@@ -183,6 +191,11 @@ function App() {
         <h1 className="text-4xl font-bold text-center text-white">المترجم الذكي</h1>
       </header>
       <main className="container mx-auto p-4" role="main">
+        {error && (
+          <div className="mb-4 p-4 bg-red-500/10 border border-red-500/20 rounded-lg text-red-500">
+            <p className="text-sm">{error}</p>
+          </div>
+        )}
         <div className="text-center mb-12 relative floating">
           <button
             onClick={() => setIsApiKeyModalOpen(true)}
@@ -251,15 +264,21 @@ function App() {
                     <button
                       onClick={handleTranslate}
                       disabled={isLoading || !inputText.trim()}
-                      className={`px-6 py-2 rounded-lg bg-primary ${
-                        isLoading ? 'opacity-50 cursor-not-allowed' : 'hover:bg-primary-dark'
-                      }`}
+                      className={`px-6 py-2 rounded-lg ${
+                        isLoading
+                          ? 'bg-gray-500 cursor-not-allowed'
+                          : error
+                          ? 'bg-red-500 hover:bg-red-600'
+                          : 'bg-primary hover:bg-primary-dark'
+                      } text-white transition-all duration-300`}
                     >
                       {isLoading ? (
-                        <>
-                          <Loader2 className="w-5 h-5 animate-spin" />
+                        <span className="flex items-center gap-2">
+                          <Loader2 className="animate-spin" size={16} />
                           جاري الترجمة...
-                        </>
+                        </span>
+                      ) : error ? (
+                        'حاول مرة أخرى'
                       ) : (
                         'ترجم'
                       )}
