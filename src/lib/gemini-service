@@ -7,58 +7,67 @@ export class GeminiService {
   private readonly MAX_CHUNK_LENGTH = 2500; // الحد الأقصى لطول النص في كل طلب
 
   constructor(apiKey: string) {
-    const genAI = new GoogleGenerativeAI(apiKey);
-    this.model = genAI.getGenerativeModel({ model: 'gemini-pro' });
-    this.cache = new TranslationCache();
+    if (!apiKey) {
+      throw new Error('مفتاح API مطلوب لخدمة Gemini');
+    }
+    try {
+      const genAI = new GoogleGenerativeAI(apiKey);
+      this.model = genAI.getGenerativeModel({ model: 'gemini-pro' });
+      this.cache = new TranslationCache();
+    } catch (error) {
+      console.error('خطأ في تهيئة خدمة Gemini:', error);
+      throw new Error(`فشل في تهيئة خدمة الترجمة: ${error.message}`);
+    }
   }
 
   /**
-   * تقسيم النص إلى أجزاء مع الحفاظ على سلامة الجمل والفقرات
+   * ترجمة النص الكامل مع التعامل مع الأجزاء الطويلة
    */
-  private splitTextIntoChunks(text: string): string[] {
-    const paragraphs = text.split('\n\n');
-    const chunks: string[] = [];
-    let currentChunk = '';
-
-    for (const paragraph of paragraphs) {
-      // إذا كان الجزء الحالي + الفقرة الجديدة أقل من الحد الأقصى
-      if ((currentChunk + paragraph).length < this.MAX_CHUNK_LENGTH) {
-        currentChunk += (currentChunk ? '\n\n' : '') + paragraph;
-      } else {
-        // إذا كانت الفقرة نفسها أكبر من الحد الأقصى
-        if (paragraph.length > this.MAX_CHUNK_LENGTH) {
-          // تقسيم الفقرة إلى جمل
-          const sentences = paragraph.match(/[^.!?]+[.!?]+/g) || [paragraph];
-          let sentenceChunk = '';
-
-          for (const sentence of sentences) {
-            if ((sentenceChunk + sentence).length < this.MAX_CHUNK_LENGTH) {
-              sentenceChunk += sentence;
-            } else {
-              if (sentenceChunk) chunks.push(sentenceChunk.trim());
-              sentenceChunk = sentence;
-            }
-          }
-          if (sentenceChunk) chunks.push(sentenceChunk.trim());
-        } else {
-          // إضافة الجزء الحالي وبدء جزء جديد
-          if (currentChunk) chunks.push(currentChunk.trim());
-          currentChunk = paragraph;
-        }
-      }
+  async translate(text: string, fromLang: string, toLang: string): Promise<string> {
+    if (!text?.trim()) {
+      throw new Error('النص المدخل فارغ');
     }
 
-    // إضافة الجزء الأخير
-    if (currentChunk) chunks.push(currentChunk.trim());
+    if (!fromLang || !toLang) {
+      throw new Error('يجب تحديد لغتي المصدر والهدف');
+    }
 
-    return chunks;
+    try {
+      // تقسيم النص إلى أجزاء إذا كان طويلاً
+      const chunks = this.splitTextIntoChunks(text);
+      const translations = await Promise.all(
+        chunks.map(chunk => this.translateChunk(chunk, fromLang, toLang))
+      );
+
+      return translations.join('\n');
+    } catch (error) {
+      console.error('خطأ في الترجمة:', {
+        error,
+        text: text.substring(0, 100) + '...',
+        fromLang,
+        toLang
+      });
+      
+      if (error.message.includes('API_KEY')) {
+        throw new Error('مفتاح API غير صالح أو منتهي الصلاحية');
+      }
+      
+      if (error.message.includes('PERMISSION_DENIED')) {
+        throw new Error('ليس لديك صلاحية للوصول إلى خدمة الترجمة');
+      }
+      
+      if (error.message.includes('QUOTA_EXCEEDED')) {
+        throw new Error('تم تجاوز حد الاستخدام المسموح به');
+      }
+
+      throw new Error(`فشل في الترجمة: ${error.message}`);
+    }
   }
 
   /**
    * ترجمة جزء واحد من النص
    */
   private async translateChunk(chunk: string, fromLang: string, toLang: string): Promise<string> {
-    // التحقق من وجود الترجمة في الذاكرة المؤقتة
     const cached = this.cache.get(chunk, fromLang, toLang);
     if (cached) {
       console.log('استخدام ترجمة مخزنة مؤقتاً');
@@ -75,48 +84,77 @@ export class GeminiService {
       `;
 
       const result = await this.model.generateContent(prompt);
+      if (!result?.response) {
+        throw new Error('لم يتم استلام رد من خدمة الترجمة');
+      }
+
       const response = await result.response;
       const translation = response.text().trim();
-      
+      if (!translation) {
+        throw new Error('الترجمة المستلمة فارغة');
+      }
+
       // تخزين الترجمة في الذاكرة المؤقتة
       this.cache.set(chunk, fromLang, toLang, translation);
       
       return translation;
     } catch (error) {
-      console.error('Chunk translation error:', error);
-      throw new Error(`فشل في ترجمة جزء من النص: ${error.message}`);
+      console.error('خطأ في ترجمة الجزء:', {
+        error,
+        chunkLength: chunk.length,
+        fromLang,
+        toLang
+      });
+      throw error;
     }
   }
 
   /**
-   * ترجمة النص الكامل مع التعامل مع الأجزاء الطويلة
+   * تقسيم النص إلى أجزاء مع الحفاظ على سلامة الجمل والفقرات
    */
-  async translate(text: string, fromLang: string, toLang: string): Promise<string> {
-    try {
-      // إذا كان النص قصيراً، ترجمه مباشرة
-      if (text.length <= this.MAX_CHUNK_LENGTH) {
-        return this.translateChunk(text, fromLang, toLang);
-      }
-
-      // تقسيم النص إلى أجزاء
-      const chunks = this.splitTextIntoChunks(text);
-      console.log(`تم تقسيم النص إلى ${chunks.length} أجزاء`);
-
-      // ترجمة كل جزء على حدة
-      const translatedChunks = await Promise.all(
-        chunks.map(async (chunk, index) => {
-          console.log(`جاري ترجمة الجزء ${index + 1} من ${chunks.length}`);
-          const translated = await this.translateChunk(chunk, fromLang, toLang);
-          // إضافة مسافة بين الفقرات
-          return translated + (index < chunks.length - 1 ? '\n\n' : '');
-        })
-      );
-
-      // دمج الأجزاء المترجمة
-      return translatedChunks.join('');
-    } catch (error) {
-      console.error('Translation error:', error);
-      throw new Error('فشلت عملية الترجمة: ' + error.message);
+  private splitTextIntoChunks(text: string): string[] {
+    if (text.length <= this.MAX_CHUNK_LENGTH) {
+      return [text];
     }
+
+    const chunks: string[] = [];
+    let currentChunk = '';
+
+    const sentences = text.split(/([.!?]\s+)/);
+    
+    for (const sentence of sentences) {
+      if ((currentChunk + sentence).length > this.MAX_CHUNK_LENGTH) {
+        if (currentChunk) {
+          chunks.push(currentChunk.trim());
+          currentChunk = '';
+        }
+        if (sentence.length > this.MAX_CHUNK_LENGTH) {
+          // تقسيم الجملة الطويلة إلى أجزاء أصغر
+          const words = sentence.split(' ');
+          let tempChunk = '';
+          for (const word of words) {
+            if ((tempChunk + ' ' + word).length > this.MAX_CHUNK_LENGTH) {
+              chunks.push(tempChunk.trim());
+              tempChunk = word;
+            } else {
+              tempChunk += (tempChunk ? ' ' : '') + word;
+            }
+          }
+          if (tempChunk) {
+            currentChunk = tempChunk;
+          }
+        } else {
+          currentChunk = sentence;
+        }
+      } else {
+        currentChunk += sentence;
+      }
+    }
+
+    if (currentChunk) {
+      chunks.push(currentChunk.trim());
+    }
+
+    return chunks;
   }
 }
