@@ -175,7 +175,10 @@ function App() {
 
   return (
     <div className="min-h-screen bg-gradient-dark">
-      <div className="container mx-auto p-4 md:p-6 lg:p-8">
+      <header className="container mx-auto p-4">
+        <h1 className="text-4xl font-bold text-center text-white">المترجم الذكي</h1>
+      </header>
+      <main className="container mx-auto p-4" role="main">
         <div className="text-center mb-12 relative floating">
           <button
             onClick={() => setIsApiKeyModalOpen(true)}
@@ -286,14 +289,41 @@ function App() {
             }}
           />
         )}
-      </div>
+      </main>
 
       <ApiKeyModal
         isOpen={isApiKeyModalOpen}
         onClose={() => setIsApiKeyModalOpen(false)}
         onSubmit={handleAISettingsSubmit}
         initialSettings={aiSettings}
-      />
+      >
+        <select
+          value={aiSettings.provider}
+          onChange={(e) => setAISettings({
+            ...aiSettings,
+            provider: e.target.value as 'openai' | 'anthropic'
+          })}
+          className="w-full p-3 rounded-xl glass-morphism text-white
+            focus:outline-none focus:ring-2 focus:ring-white/20 transition-all duration-300"
+          aria-label="اختر مزود خدمة الذكاء الاصطناعي"
+        >
+          <option value="openai">OpenAI</option>
+          <option value="anthropic">Anthropic</option>
+        </select>
+        <select
+          value={aiSettings.model}
+          onChange={(e) => setAISettings({
+            ...aiSettings,
+            model: e.target.value
+          })}
+          className="w-full p-3 rounded-xl glass-morphism text-white
+            focus:outline-none focus:ring-2 focus:ring-white/20 transition-all duration-300"
+          aria-label="اختر نموذج الذكاء الاصطناعي"
+        >
+          <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
+          <option value="gpt-4">GPT-4</option>
+        </select>
+      </ApiKeyModal>
     </div>
   );
 }
