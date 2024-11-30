@@ -1,12 +1,15 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { TranslationCache } from './cache';
 
 export class GeminiService {
   private model: any;
+  private cache: TranslationCache;
   private readonly MAX_CHUNK_LENGTH = 2500; // الحد الأقصى لطول النص في كل طلب
 
   constructor(apiKey: string) {
     const genAI = new GoogleGenerativeAI(apiKey);
     this.model = genAI.getGenerativeModel({ model: 'gemini-pro' });
+    this.cache = new TranslationCache();
   }
 
   /**
@@ -55,6 +58,13 @@ export class GeminiService {
    * ترجمة جزء واحد من النص
    */
   private async translateChunk(chunk: string, fromLang: string, toLang: string): Promise<string> {
+    // التحقق من وجود الترجمة في الذاكرة المؤقتة
+    const cached = this.cache.get(chunk, fromLang, toLang);
+    if (cached) {
+      console.log('استخدام ترجمة مخزنة مؤقتاً');
+      return cached;
+    }
+
     try {
       const prompt = `
         أنت مترجم محترف. قم بترجمة النص التالي من ${fromLang} إلى ${toLang}.
@@ -66,7 +76,12 @@ export class GeminiService {
 
       const result = await this.model.generateContent(prompt);
       const response = await result.response;
-      return response.text().trim();
+      const translation = response.text().trim();
+      
+      // تخزين الترجمة في الذاكرة المؤقتة
+      this.cache.set(chunk, fromLang, toLang, translation);
+      
+      return translation;
     } catch (error) {
       console.error('Chunk translation error:', error);
       throw new Error(`فشل في ترجمة جزء من النص: ${error.message}`);
