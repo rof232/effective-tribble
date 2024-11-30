@@ -22,10 +22,10 @@ import type { TranslationHistoryItem, DetectedCharacter, AISettings } from './li
  */
 function App() {
   // حالة النص والترجمة
-  const [fromLang, setFromLang] = useState('ar');
-  const [toLang, setToLang] = useState('en');
-  const [inputText, setInputText] = useState('');
-  const [translatedText, setTranslatedText] = useState('');
+  const [sourceLang, setSourceLang] = useState('ar');
+  const [targetLang, setTargetLang] = useState('en');
+  const [sourceText, setSourceText] = useState('');
+  const [targetText, setTargetText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -68,10 +68,10 @@ function App() {
    * تبديل اللغات المصدر والهدف
    */
   const handleSwapLanguages = () => {
-    setFromLang(toLang);
-    setToLang(fromLang);
-    setInputText(translatedText);
-    setTranslatedText(inputText);
+    setSourceLang(targetLang);
+    setTargetLang(sourceLang);
+    setSourceText(targetText);
+    setTargetText(sourceText);
   };
 
   /**
@@ -116,10 +116,10 @@ function App() {
    * اختيار ترجمة من السجل
    */
   const handleHistorySelect = (item: TranslationHistoryItem) => {
-    setFromLang(item.from);
-    setToLang(item.to);
-    setInputText(item.originalText);
-    setTranslatedText(item.translatedText);
+    setSourceLang(item.fromLang);
+    setTargetLang(item.toLang);
+    setSourceText(item.sourceText);
+    setTargetText(item.targetText);
     
     if (item.characters) {
       setCharacters(
@@ -134,20 +134,20 @@ function App() {
   /**
    * تنفيذ الترجمة
    */
-  const translationService = useMemo(() => {
-    return new AIService(aiSettings);
-  }, [aiSettings]);
-
   const handleTranslate = useCallback(async () => {
-    if (!inputText.trim() || !translationService) return;
+    if (!sourceText.trim()) return;
     
     setError(null);
     setIsLoading(true);
     
     try {
-      // التحقق من مفتاح API
       if (!aiSettings?.apiKey) {
         throw new Error('الرجاء إدخال مفتاح API في الإعدادات');
+      }
+
+      const service = new GeminiService(aiSettings.apiKey);
+      if (!service.isConfigured()) {
+        throw new Error('فشل في تهيئة خدمة الترجمة');
       }
 
       const characterGenders = Object.fromEntries(
@@ -156,25 +156,27 @@ function App() {
           .map(char => [char.name, char.gender])
       );
 
-      const translatedResult = await translationService.translate(inputText, fromLang, toLang, characterGenders);
-      setTranslatedText(translatedResult);
+      const result = await service.translate(sourceText, {
+        fromLang: sourceLang,
+        toLang: targetLang,
+        characters: characterGenders,
+        preserveFormatting: true
+      });
 
-      setHistory((prev) => [{
+      if (!result) {
+        throw new Error('لم يتم استلام أي ترجمة');
+      }
+
+      setTargetText(result);
+      
+      // حفظ في السجل
+      setHistory(prev => [{
         id: Date.now(),
-        from: fromLang,
-        to: toLang,
-        originalText: inputText,
-        translatedText: translatedResult,
-        timestamp: new Date(),
-        provider: aiSettings.provider,
-        model: aiSettings.model,
-        characters: characters
-          .filter(char => char.gender)
-          .map(char => ({
-            name: char.name,
-            gender: char.gender!,
-            timestamp: new Date()
-          }))
+        sourceText,
+        targetText: result,
+        fromLang: sourceLang,
+        toLang: targetLang,
+        timestamp: new Date()
       }, ...prev]);
 
     } catch (error) {
@@ -183,7 +185,7 @@ function App() {
     } finally {
       setIsLoading(false);
     }
-  }, [inputText, fromLang, toLang, translationService, characters, aiSettings]);
+  }, [sourceText, sourceLang, targetLang, aiSettings, characters]);
 
   return (
     <div className="min-h-screen bg-gradient-dark">
@@ -237,23 +239,23 @@ function App() {
                 />
                 <div className="flex items-center gap-4 mb-6">
                   <LanguageSelector
-                    fromLang={fromLang}
-                    toLang={toLang}
-                    onFromLangChange={setFromLang}
-                    onToLangChange={setToLang}
+                    fromLang={sourceLang}
+                    toLang={targetLang}
+                    onFromLangChange={setSourceLang}
+                    onToLangChange={setTargetLang}
                     onSwapLanguages={handleSwapLanguages}
                   />
                 </div>
 
                 <div className="space-y-4">
                   <TextFormatting
-                    text={inputText}
-                    onTextChange={setInputText}
+                    text={sourceText}
+                    onTextChange={setSourceText}
                   />
 
                   <textarea
-                    value={inputText}
-                    onChange={(e) => setInputText(e.target.value)}
+                    value={sourceText}
+                    onChange={(e) => setSourceText(e.target.value)}
                     placeholder="أدخل النص للترجمة..."
                     className="w-full h-32 p-4 rounded-xl glass-morphism text-white placeholder-white/50
                       focus:outline-none focus:ring-2 focus:ring-white/20 transition-all duration-300"
@@ -263,7 +265,7 @@ function App() {
                   <div className="flex justify-end">
                     <button
                       onClick={handleTranslate}
-                      disabled={isLoading || !inputText.trim()}
+                      disabled={isLoading || !sourceText.trim()}
                       className={`px-6 py-2 rounded-lg ${
                         isLoading
                           ? 'bg-gray-500 cursor-not-allowed'
@@ -285,9 +287,9 @@ function App() {
                     </button>
                   </div>
 
-                  {translatedText && (
+                  {targetText && (
                     <div className="glass-morphism rounded-xl p-4 text-white/90">
-                      <p dir="auto">{translatedText}</p>
+                      <p dir="auto">{targetText}</p>
                     </div>
                   )}
                 </div>
@@ -297,7 +299,7 @@ function App() {
             <div className="lg:col-span-1 space-y-6">
               <GlossaryManager
                 onTermSelect={(term) => {
-                  setInputText((prev) => prev + ' ' + term.original);
+                  setSourceText((prev) => prev + ' ' + term.original);
                 }}
               />
               <TranslationHistory
@@ -310,7 +312,7 @@ function App() {
           <ChapterManager
             onTranslate={async (text) => {
               if (!aiService) throw new Error('لم يتم تكوين خدمة الترجمة');
-              return await aiService.translate(text, fromLang, toLang);
+              return await aiService.translate(text, sourceLang, targetLang);
             }}
           />
         )}
