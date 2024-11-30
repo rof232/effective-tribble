@@ -1,5 +1,26 @@
 import React from 'react';
 import { ArrowLeftRight } from 'lucide-react';
+import { useStore } from '../lib/store';
+
+interface Language {
+  code: string;
+  name: string;
+  nativeName: string;
+  direction: 'ltr' | 'rtl';
+}
+
+const languages: Language[] = [
+  { code: 'ar', name: 'Arabic', nativeName: 'العربية', direction: 'rtl' },
+  { code: 'en', name: 'English', nativeName: 'English', direction: 'ltr' },
+  { code: 'es', name: 'Spanish', nativeName: 'Español', direction: 'ltr' },
+  { code: 'fr', name: 'French', nativeName: 'Français', direction: 'ltr' },
+  { code: 'de', name: 'German', nativeName: 'Deutsch', direction: 'ltr' },
+  { code: 'it', name: 'Italian', nativeName: 'Italiano', direction: 'ltr' },
+  { code: 'ja', name: 'Japanese', nativeName: '日本語', direction: 'ltr' },
+  { code: 'ko', name: 'Korean', nativeName: '한국어', direction: 'ltr' },
+  { code: 'zh', name: 'Chinese', nativeName: '中文', direction: 'ltr' },
+  // يمكن إضافة المزيد من اللغات هنا
+];
 
 interface Props {
   fromLang: string;
@@ -9,18 +30,6 @@ interface Props {
   onSwapLanguages: () => void;
 }
 
-const LANGUAGES = {
-  ar: 'العربية',
-  en: 'English',
-  fr: 'Français',
-  es: 'Español',
-  de: 'Deutsch',
-  it: 'Italiano',
-  ja: '日本語',
-  ko: '한국어',
-  zh: '中文'
-};
-
 const LanguageSelector: React.FC<Props> = ({
   fromLang,
   toLang,
@@ -28,6 +37,10 @@ const LanguageSelector: React.FC<Props> = ({
   onToLangChange,
   onSwapLanguages
 }) => {
+  const getLanguageDirection = (langCode: string): 'ltr' | 'rtl' => {
+    return languages.find(lang => lang.code === langCode)?.direction || 'ltr';
+  };
+
   return (
     <div className="flex items-center gap-4 w-full">
       <div className="flex-1">
@@ -36,18 +49,12 @@ const LanguageSelector: React.FC<Props> = ({
           onChange={(e) => onFromLangChange(e.target.value)}
           className="w-full p-3 rounded-xl glass-morphism text-white 
             focus:outline-none focus:ring-2 focus:ring-white/20 transition-all duration-300
-            appearance-none bg-transparent cursor-pointer"
-          style={{
-            backgroundImage: `url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e")`,
-            backgroundRepeat: 'no-repeat',
-            backgroundPosition: 'right 0.75rem center',
-            backgroundSize: '1rem',
-            paddingRight: '2.5rem'
-          }}
+            appearance-none bg-transparent cursor-pointer select-language"
+          style={{ direction: getLanguageDirection(fromLang) }}
         >
-          {Object.entries(LANGUAGES).map(([code, name]) => (
-            <option key={code} value={code} className="bg-[#1a1a2e] text-white">
-              {name}
+          {languages.map((lang) => (
+            <option key={lang.code} value={lang.code} className="bg-[#1a1a2e] text-white">
+              {lang.nativeName}
             </option>
           ))}
         </select>
@@ -69,18 +76,12 @@ const LanguageSelector: React.FC<Props> = ({
           onChange={(e) => onToLangChange(e.target.value)}
           className="w-full p-3 rounded-xl glass-morphism text-white 
             focus:outline-none focus:ring-2 focus:ring-white/20 transition-all duration-300
-            appearance-none bg-transparent cursor-pointer"
-          style={{
-            backgroundImage: `url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e")`,
-            backgroundRepeat: 'no-repeat',
-            backgroundPosition: 'right 0.75rem center',
-            backgroundSize: '1rem',
-            paddingRight: '2.5rem'
-          }}
+            appearance-none bg-transparent cursor-pointer select-language"
+          style={{ direction: getLanguageDirection(toLang) }}
         >
-          {Object.entries(LANGUAGES).map(([code, name]) => (
-            <option key={code} value={code} className="bg-[#1a1a2e] text-white">
-              {name}
+          {languages.map((lang) => (
+            <option key={lang.code} value={lang.code} className="bg-[#1a1a2e] text-white">
+              {lang.nativeName}
             </option>
           ))}
         </select>
